@@ -1,0 +1,1746 @@
+
+QT += core gui widgets network
+QT -= console   # GUI application
+
+CONFIG -= app_bundle
+CONFIG += c++17
+TEMPLATE = app
+
+SOURCES += \
+    main.cpp \
+    mainwindow.cpp \
+    radarmap.cpp \
+    receiver.cpp \
+    asterixencoder.cpp \
+    asterixparser.cpp \
+    asterixrecord.cpp \
+    udplistener.cpp \
+    utils.cpp
+
+HEADERS += \
+    animateddot.h \
+    mainwindow.h \
+    radarmap.h \
+    receiver.h \
+    asterixencoder.h \
+    asterixparser.h \
+    asterixrecord.h \
+    udplistener.h \
+    utils.h
+
+FORMS += \
+    mainwindow.ui
+
+RESOURCES += \
+    resources.qrc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//animateddot.h
+
+
+#ifndef ANIMATEDDOT_H
+#define ANIMATEDDOT_H
+
+#include <QObject>
+#include <QGraphicsEllipseItem>
+#include <QPropertyAnimation>
+#include <QBrush>
+#include <QPen>
+#include <QColor>
+
+class AnimatedDot : public QObject, public QGraphicsEllipseItem
+{
+    Q_OBJECT
+    Q_PROPERTY(QPointF pos READ pos WRITE setPos)   // animate position
+
+public:
+    explicit AnimatedDot(QGraphicsEllipseItem *item = nullptr)
+        : QObject(), QGraphicsEllipseItem()
+    {
+        setRect(0, 0, 6, 6);
+        setBrush(Qt::yellow);
+        m_anim = new QPropertyAnimation(this, "pos");
+        m_anim->setDuration(700);   // smooth gliding speed
+        m_anim->setEasingCurve(QEasingCurve::InOutQuad);
+    }
+
+    void moveTo(double x, double y)
+    {
+        m_anim->stop();
+        m_anim->setStartValue(pos());
+        m_anim->setEndValue(QPointF(x, y));
+        m_anim->start();
+    }
+
+private:
+    QPropertyAnimation *m_anim;
+};
+
+#endif // ANIMATEDDOT_H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//asterixencoder.h
+
+#ifndef ASTERIXENCODER_H
+#define ASTERIXENCODER_H
+
+#include "asterixparser.h"
+#include "asterixrecord.h"
+#include <QByteArray>
+
+class AsterixEncoder
+{
+public:
+    AsterixEncoder();
+    QByteArray encodeCat21(const AdsbMessage &m);
+};
+
+#endif // ASTERIXENCODER_H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//asterixparser.h
+#ifndef ASTERIXPARSER_H
+#define ASTERIXPARSER_H
+
+#include <QString>
+#include <QByteArray>
+
+struct AdsbMessage {
+    QString icao;
+    double lat = NAN;
+    double lon = NAN;
+    double alt_m = NAN;
+    double heading = NAN;
+    double gs_knots = NAN;
+    double vr_fpm = NAN;
+    QString flight;
+    quint32 timestamp = 0;
+    quint16 dsid = 0;
+    quint16 mode3a = 0;
+    quint8 emitter_cat = 0;
+    bool valid = false;
+};
+
+AdsbMessage parseAdsbLine(const QByteArray &line);
+
+#endif // ASTERIXPARSER_H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//asterixrecord.h
+#ifndef ASTERIXRECORD_H
+#define ASTERIXRECORD_H
+
+#include <QByteArray>
+#include <QString>
+#include <QVector>
+
+/*
+  Complete CAT-21 UAP mapping (FRN 1..49). Flat boolean fields.
+  Each field name includes FRN and I021/xxx for clarity.
+  NOTE: FX bits (continuation bits) are NOT represented as FRNs.
+*/
+
+struct Cat21UAP_Flat
+{
+    // FSPEC octet 1 (FRN 1..7)
+    bool frn_01_i021_010_DataSourceID            = false; // I021/010 (2 octets)
+    bool frn_02_i021_040_TargetReportDescriptor  = false; // I021/040
+    bool frn_03_i021_161_TrackNumber             = false; // I021/161
+    bool frn_04_i021_015_ServiceIdentification   = false; // I021/015
+    bool frn_05_i021_071_TimeOfApplicabilityPos  = false; // I021/071 (ToD)
+    bool frn_06_i021_130_PositionWGS84           = false; // I021/130 (3+3 bytes)
+    bool frn_07_i021_131_PositionWGS84_HR        = false; // I021/131 (HR)
+
+    // FSPEC octet 2 (FRN 8..14)
+    bool frn_08_i021_072_TimeOfApplicabilityVel  = false; // I021/072
+    bool frn_09_i021_150_AirSpeed                = false; // I021/150
+    bool frn_10_i021_151_TrueAirSpeed            = false; // I021/151
+    bool frn_11_i021_080_TargetAddress           = false; // I021/080 (Mode-S 3 bytes)
+    bool frn_12_i021_073_TimeMsgReceptionPos     = false; // I021/073
+    bool frn_13_i021_074_TimeMsgReceptionPos_HP  = false; // I021/074
+    bool frn_14_i021_075_TimeMsgReceptionVel     = false; // I021/075
+
+    // FSPEC octet 3 (FRN 15..21)
+    bool frn_15_i021_076_TimeMsgReceptionVel_HP  = false; // I021/076
+    bool frn_16_i021_140_GeometricHeight         = false; // I021/140
+    bool frn_17_i021_090_QualityIndicators       = false; // I021/090
+    bool frn_18_i021_210_MOPSVersion             = false; // I021/210
+    bool frn_19_i021_070_Mode3A                  = false; // I021/070
+    bool frn_20_i021_230_RollAngle               = false; // I021/230
+    bool frn_21_i021_145_FlightLevel             = false; // I021/145
+
+    // FSPEC octet 4 (FRN 22..28)
+    bool frn_22_i021_152_MagneticHeading         = false; // I021/152
+    bool frn_23_i021_200_TargetStatus            = false; // I021/200
+    bool frn_24_i021_155_BaroVerticalRate        = false; // I021/155
+    bool frn_25_i021_157_GeometricVerticalRate   = false; // I021/157
+    bool frn_26_i021_160_AirborneGroundVector    = false; // I021/160 (track+speed)
+    bool frn_27_i021_165_TrackAngleRate          = false; // I021/165
+    bool frn_28_i021_077_TimeOfReportTrans       = false; // I021/077
+
+    // FSPEC octet 5 (FRN 29..35)
+    bool frn_29_i021_170_TargetIdentification    = false; // I021/170 (flight id)
+    bool frn_30_i021_020_EmitterCategory         = false; // I021/020
+    bool frn_31_i021_220_MetInformation          = false; // I021/220
+    bool frn_32_i021_146_SelectedAltitude        = false; // I021/146
+    bool frn_33_i021_148_FinalStateSelAlt        = false; // I021/148
+    bool frn_34_i021_110_TrajectoryIntent        = false; // I021/110
+    bool frn_35_i021_016_ServiceManagement       = false; // I021/016
+
+    // FSPEC octet 6 (FRN 36..42)
+    bool frn_36_i021_008_OperationalStatus       = false; // I021/008
+    bool frn_37_i021_271_SurfaceCapabilities     = false; // I021/271
+    bool frn_38_i021_132_EmitterCategoryAlt      = false; // I021/132
+    bool frn_39_i021_250_ModeSMBData             = false; // I021/250
+    bool frn_40_i021_260_ACAS                    = false; // I021/260
+    bool frn_41_i021_400_ReceiverID              = false; // I021/400
+    bool frn_42_i021_295_DataAges                = false; // I021/295
+
+    // FSPEC octet 7 (FRN 43..49)  (last FSPEC; bit8 FX = 0)
+    bool frn_43_na                                = false; // NA
+    bool frn_44_na                                = false; // NA
+    bool frn_45_na                                = false; // NA
+    bool frn_46_na                                = false; // NA
+    bool frn_47_na                                = false; // NA
+    bool frn_48_re_reservedExpansion              = false; // RE
+    bool frn_49_sp_specialPurpose                 = false; // SP
+};
+
+class AsterixRecord
+{
+public:
+    explicit AsterixRecord(uint8_t category = 21);
+    Cat21UAP_Flat uap;                      // UAP mask
+    void addField(const QByteArray &encodedDi); // append encoded DI bytes (must be appended in FRN order)
+    QByteArray encode() const;                 // build CAT + FSPECs (7 octets) + body
+    void clear();
+
+private:
+    uint8_t m_category;
+    QByteArray m_body;
+};
+
+#endif // ASTERIXRECORD_H
+
+
+
+
+
+
+
+
+//mainwindow.h
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
+
+#include <QMainWindow>
+#include "receiver.h"
+#include <QGraphicsScene>
+#include <QGraphicsEllipseItem>
+#include <QMap>
+#include "animateddot.h"
+
+QT_BEGIN_NAMESPACE
+namespace Ui { class MainWindow; }
+QT_END_NAMESPACE
+
+class MainWindow : public QMainWindow
+{
+    Q_OBJECT
+
+public:
+    explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow();
+
+private slots:
+    void onStartClicked();
+    void onAdsbMessageReceived(const AdsbMessage &msg);
+
+private:
+    Ui::MainWindow *ui;
+    Receiver *m_receiver;
+    QGraphicsScene *m_scene;
+
+    QMap<QString, AnimatedDot*> m_aircraftDots;
+
+    void setupTable();
+    void addOrUpdateAircraft(const AdsbMessage &msg);
+};
+
+#endif // MAINWINDOW_H
+
+
+
+
+
+
+
+
+
+
+//radarmap.h
+#ifndef RADARMAP_H
+#define RADARMAP_H
+
+#include <QGraphicsView>
+#include <QMap>
+
+struct TrackItem {
+    QGraphicsItem *icon = nullptr;
+    QGraphicsTextItem *label = nullptr;
+};
+
+class RadarMap : public QGraphicsView
+{
+    Q_OBJECT
+public:
+    explicit RadarMap(QWidget *parent = nullptr);
+    void setMapImage(const QPixmap &pix);
+
+    void updateTrack(int trackNo, const QString &callsign, double lat, double lon);
+    void removeTrack(int trackNo);
+    void clearAll();
+
+private:
+    QPointF geoToScene(double lat, double lon);
+
+    QGraphicsPixmapItem *m_mapItem = nullptr;
+    QMap<int, TrackItem> m_tracks;
+    int mapW = 3600;
+    int mapH = 1800;
+};
+
+#endif // RADARMAP_H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//receiver.h
+#ifndef RECEIVER_H
+#define RECEIVER_H
+
+#include <QObject>
+#include "udplistener.h"
+#include "asterixparser.h"
+
+class Receiver : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit Receiver(QObject *parent = nullptr);
+    ~Receiver();
+
+    bool start(int mode, const QString &group, quint16 port);
+    void stop();
+
+signals:
+    void adsbMessageReceived(const AdsbMessage &msg);
+
+private slots:
+    void onDatagramReceived(const QByteArray &data, const QHostAddress &sender, quint16 port);
+
+private:
+    UdpListener *m_listener = nullptr;
+};
+
+#endif // RECEIVER_H
+
+
+
+
+
+
+
+
+
+
+//udplistener.h
+#ifndef UDPLISTENER_H
+#define UDPLISTENER_H
+
+#include <QObject>
+#include <QUdpSocket>
+#include <QHostAddress>
+
+class UdpListener : public QObject {
+    Q_OBJECT
+public:
+    explicit UdpListener(quint16 port = 9000, QObject *parent = nullptr);
+    bool start();
+    bool startMulticast(const QString &group);
+
+signals:
+    void datagramReceived(const QByteArray &data, const QHostAddress &sender, quint16 senderPort);
+
+private slots:
+    void readPendingDatagrams();
+
+private:
+    QUdpSocket *m_socket;
+    quint16 m_port;
+};
+
+#endif // UDPLISTENER_H
+
+
+
+
+
+
+//utils.h
+#ifndef UTILS_H
+#define UTILS_H
+
+#include <QByteArray>
+#include <QtEndian>
+
+class Utils
+{
+public:
+    // Convert unsigned 8/16/24/32-bit values to big-endian bytes
+    static QByteArray uint8(quint8 v);
+    static QByteArray uint16(quint16 v);
+    static QByteArray uint24(quint32 v);     // 3-byte
+    static QByteArray uint32(quint32 v);
+
+    // Convert signed 16/32-bit (two’s complement) to big-endian bytes
+    static QByteArray int16(qint16 v);
+    static QByteArray int32(qint32 v);
+
+    // Encode ICAO aircraft address (24-bit hex)
+    static QByteArray icaoToBytes(const QString &hex);
+
+    // Utility: convert QByteArray to nice hex string
+    static QString toHex(const QByteArray &data);
+};
+
+#endif // UTILS_H
+
+
+
+
+
+
+
+
+
+//asterixencoder.cpp
+
+#include "asterixencoder.h"
+#include "utils.h"
+#include <QDebug>
+#include <cmath>
+
+AsterixEncoder::AsterixEncoder() {}
+
+static QByteArray encode_uint_be(quint64 v, int len)
+{
+    QByteArray out;
+
+    if (len == 1) {
+        out = Utils::uint8(v);
+    }
+    else if (len == 2) {
+        out = Utils::uint16(v);
+    }
+    else if (len == 3) {
+        out = Utils::uint24(v);
+    }
+    else if (len == 4) {
+        out = Utils::uint32(v);
+    }
+    else {
+        // fallback for unusual lengths
+        out.resize(len);
+        for (int i = 0; i < len; i++) {
+            out[len - 1 - i] = char((v >> (8 * i)) & 0xFF);
+        }
+    }
+    return out;
+}
+
+
+static QByteArray encode_sint_be(qint64 v, int len) {
+    // two's complement big-endian signed len octets
+    QByteArray out(len, 0);
+    quint64 uv = static_cast<quint64>(v);
+    for (int i = len-1; i >= 0; --i) {
+        out[i] = static_cast<char>(uv & 0xFF);
+        uv >>= 8;
+    }
+    return out;
+}
+
+/* I021/010 Data Source Identifier (2 octets) */
+static QByteArray di_010_datasource(quint16 dsi) {
+    return encode_uint_be(dsi & 0xFFFF, 2);
+}
+
+/* I021/071 Time of Applicability (ToD) 3 octets: seconds since midnight */
+static QByteArray di_071_timeOfDay(quint32 seconds) {
+    return encode_uint_be(seconds & 0x00FFFFFF, 3);
+}
+
+/* I021/130 Position WGS-84: encode as 3 + 3 octet signed lat/lon scaled by 1e6 */
+static QByteArray di_130_position3x3(double lat, double lon) {
+    // convert to integers (deg * 1e6)
+    qint32 latS = static_cast<qint32>(qRound(lat * 1e6));
+    qint32 lonS = static_cast<qint32>(qRound(lon * 1e6));
+    QByteArray out;
+    out.append(static_cast<char>((latS >> 16) & 0xFF));
+    out.append(static_cast<char>((latS >> 8) & 0xFF));
+    out.append(static_cast<char>((latS >> 0) & 0xFF));
+    out.append(static_cast<char>((lonS >> 16) & 0xFF));
+    out.append(static_cast<char>((lonS >> 8) & 0xFF));
+    out.append(static_cast<char>((lonS >> 0) & 0xFF));
+    return out;
+}
+
+/* I021/080 Mode-S Target Address (3 octets) - ICAO hex string -> 3 bytes */
+static QByteArray di_080_modes(const QString &icaoHex) {
+    QString s = icaoHex.trimmed();
+    if (s.startsWith("0x") || s.startsWith("0X")) s = s.mid(2);
+    while (s.size() < 6) s = "0" + s;
+    QByteArray out;
+    bool ok=true;
+    for (int i=0;i<6;i+=2) {
+        bool okb=false;
+        quint8 b = static_cast<quint8>(s.mid(i,2).toUInt(&okb,16));
+        if (!okb) ok=false;
+        out.append(static_cast<char>(b));
+    }
+    if (!ok) return QByteArray("\x00\x00\x00",3);
+    return out;
+}
+
+/* I021/170 Target Identification (6 octets ASCII padded) */
+static QByteArray di_170_targetId(const QString &flight) {
+    QByteArray ba = flight.trimmed().toLatin1();
+    while (ba.size() < 6) ba.append(' ');
+    if (ba.size() > 6) ba = ba.left(6);
+    return ba;
+}
+
+/* I021/140 Geometric Height -> encode FL or meters: We'll encode FL (feet/100) as 2 octets */
+static QByteArray di_140_geometricHeight(double alt_m) {
+    if (std::isnan(alt_m)) return QByteArray();
+    double alt_ft = alt_m * 3.280839895;
+    int fl = static_cast<int>(std::round(alt_ft / 100.0));
+    return encode_uint_be(static_cast<quint16>(fl & 0xFFFF), 2);
+}
+
+/* I021/150 AirSpeed (2 octets) - use ground speed if provided */
+static QByteArray di_150_airspeed(double gs_knots) {
+    if (std::isnan(gs_knots)) return QByteArray();
+    quint16 speed = static_cast<quint16>(qRound(gs_knots));
+    return encode_uint_be(speed, 2);
+}
+
+/* I021/070 Mode 3/A code (2 octets) */
+static QByteArray di_070_mode3a(quint16 mode3a) {
+    return encode_uint_be(mode3a & 0x0FFF, 2);
+}
+
+/* I021/160 Airborne Ground Vector (4 octets: track(2) in 0.01deg + speed(2) knots) */
+static QByteArray di_160_groundVector(double heading_deg, double spd_knots) {
+    if (std::isnan(heading_deg) || std::isnan(spd_knots)) return QByteArray();
+    quint16 trk = static_cast<quint16>(qRound(fmod((heading_deg + 360.0),360.0) * 100.0)) & 0xFFFF;
+    quint16 spd = static_cast<quint16>(qRound(spd_knots)) & 0xFFFF;
+    QByteArray out;
+    out.append(encode_uint_be(trk,2));
+    out.append(encode_uint_be(spd,2));
+    return out;
+}
+
+/* I021/155 Vertical Rate (Barometric) - 2 octets signed */
+static QByteArray di_155_verticalRate(double vr_fpm) {
+    if (std::isnan(vr_fpm)) return QByteArray();
+    qint16 r = static_cast<qint16>(qRound(vr_fpm));
+    return encode_sint_be(r, 2);
+}
+
+/* I021/020 Emitter Category (1 octet) */
+static QByteArray di_020_emitter(quint8 cat) {
+    QByteArray b; b.append(static_cast<char>(cat)); return b;
+}
+
+/* I021/400 Receiver ID (1 octet) */
+static QByteArray di_400_receiver(quint8 id) {
+    QByteArray b; b.append(static_cast<char>(id)); return b;
+}
+
+/* I021/295 Data Ages (1 octet placeholder) */
+static QByteArray di_295_dataAges(quint8 ages) {
+    QByteArray b; b.append(static_cast<char>(ages)); return b;
+}
+
+/* I021/008 Operational Status (1 octet placeholder) */
+static QByteArray di_008_operationalStatus(quint8 st) {
+    QByteArray b; b.append(static_cast<char>(st)); return b;
+}
+
+/* Helper: append DI if not empty and set uap flag */
+static void addIfNotEmpty(AsterixRecord &rec, bool &uapFlag, const QByteArray &di) {
+    if (!di.isEmpty()) {
+        uapFlag = true;
+        rec.addField(di);
+    }
+}
+
+QByteArray AsterixEncoder::encodeCat21(const AdsbMessage &m)
+{
+    AsterixRecord rec(21);
+    rec.clear();
+
+    // FRN1: I021/010 Data Source ID
+    addIfNotEmpty(rec, rec.uap.frn_01_i021_010_DataSourceID, di_010_datasource(m.dsid ? m.dsid : 1));
+
+    // FRN2: I021/040 Target report descriptor - create single-octet basic descriptor
+    {
+        quint8 desc = 0;
+        // bits meaning: set 'position' available etc. (simple)
+        desc |= 0x04; // arbitrary "position report" flag
+        addIfNotEmpty(rec, rec.uap.frn_02_i021_040_TargetReportDescriptor, QByteArray(1, static_cast<char>(desc)));
+    }
+
+    // FRN5: I021/071 Time of applicability (use timestamp if present)
+    if (m.timestamp > 0) {
+        addIfNotEmpty(rec, rec.uap.frn_05_i021_071_TimeOfApplicabilityPos, di_071_timeOfDay(m.timestamp));
+    }
+
+    // FRN6: I021/130 Position
+    if (!std::isnan(m.lat) && !std::isnan(m.lon)) {
+        addIfNotEmpty(rec, rec.uap.frn_06_i021_130_PositionWGS84, di_130_position3x3(m.lat, m.lon));
+    }
+
+    // FRN11: Mode-S address (I021/080)
+    if (!m.icao.isEmpty()) {
+        addIfNotEmpty(rec, rec.uap.frn_11_i021_080_TargetAddress, di_080_modes(m.icao));
+    }
+
+    // FRN16: Geometric height (I021/140)
+    if (!std::isnan(m.alt_m)) {
+        addIfNotEmpty(rec, rec.uap.frn_16_i021_140_GeometricHeight, di_140_geometricHeight(m.alt_m));
+    }
+
+    // FRN17: Quality indicators (I021/090) - minimal 1 octet
+    {
+        quint8 qi = 0;
+        if (!std::isnan(m.lat) && !std::isnan(m.lon)) qi |= 0x04; // pos available
+        addIfNotEmpty(rec, rec.uap.frn_17_i021_090_QualityIndicators, QByteArray(1, static_cast<char>(qi)));
+    }
+
+    // FRN19: Mode 3/A
+    if (m.mode3a != 0) {
+        addIfNotEmpty(rec, rec.uap.frn_19_i021_070_Mode3A, di_070_mode3a(m.mode3a));
+    }
+
+    // FRN21: Flight level (we already encoded geometric height as FRN16; FRN21 kept for redundancy)
+    if (!std::isnan(m.alt_m)) {
+        addIfNotEmpty(rec, rec.uap.frn_21_i021_145_FlightLevel, di_140_geometricHeight(m.alt_m));
+    }
+
+    // FRN24: Barometric vertical rate (I021/155)
+    if (!std::isnan(m.vr_fpm)) {
+        addIfNotEmpty(rec, rec.uap.frn_24_i021_155_BaroVerticalRate, di_155_verticalRate(m.vr_fpm));
+    }
+
+    // FRN26: Airborne ground vector (I021/160)
+    if (!std::isnan(m.heading) && !std::isnan(m.gs_knots)) {
+        addIfNotEmpty(rec, rec.uap.frn_26_i021_160_AirborneGroundVector, di_160_groundVector(m.heading, m.gs_knots));
+    }
+
+    // FRN29: Target identification (I021/170)
+    if (!m.flight.isEmpty()) {
+        addIfNotEmpty(rec, rec.uap.frn_29_i021_170_TargetIdentification, di_170_targetId(m.flight));
+    }
+
+    // FRN30: Emitter category (I021/020)
+    if (m.emitter_cat != 0) {
+        addIfNotEmpty(rec, rec.uap.frn_30_i021_020_EmitterCategory, di_020_emitter(m.emitter_cat));
+    }
+
+    // FRN36: Operational status (I021/008) - include a placeholder or small flags
+    {
+        quint8 st = 0;
+        // set some bits if certain fields present
+        if (!std::isnan(m.alt_m)) st |= 0x01;
+        addIfNotEmpty(rec, rec.uap.frn_36_i021_008_OperationalStatus, di_008_operationalStatus(st));
+    }
+
+    // FRN39: Mode-S MB data - skip unless available (we don't have raw MB data here)
+
+    // FRN41: Receiver ID (I021/400) - set a small default
+    addIfNotEmpty(rec, rec.uap.frn_41_i021_400_ReceiverID, di_400_receiver(1));
+
+    // FRN42: Data ages (I021/295) placeholder
+    addIfNotEmpty(rec, rec.uap.frn_42_i021_295_DataAges, di_295_dataAges(0));
+
+    // FRN48/49: RE / SP left false unless you set them externally
+
+    // Done — build packet
+    QByteArray pkt = rec.encode();
+
+    // Debug prints (nice for validating)
+    qDebug().noquote() << "ASTX CAT21 final hex:" << Utils::toHex(pkt);
+    return pkt;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//asterixparser.cpp
+
+// asterixparser.cpp
+#include "asterixparser.h"
+#include <QStringList>
+#include <QDebug>
+
+static double safeToDouble(const QString &s, double def = std::numeric_limits<double>::quiet_NaN()) {
+    bool ok = false;
+    double v = s.trimmed().toDouble(&ok);
+    return ok ? v : def;
+}
+
+static qint64 safeToInt64(const QString &s, qint64 def = 0) {
+    bool ok = false;
+    qint64 v = s.trimmed().toLongLong(&ok);
+    return ok ? v : def;
+}
+
+AdsbMessage parseAdsbLine(const QByteArray &line)
+{
+    AdsbMessage msg;
+    msg.valid = false;
+
+    QString s = QString::fromUtf8(line).trimmed();
+    if (s.isEmpty()) return msg;
+
+    if (s.startsWith("STARTAD", Qt::CaseInsensitive) &&
+        s.endsWith("ENDAD", Qt::CaseInsensitive))
+    {
+        // Remove STARTAD
+        s.remove(0, QString("STARTAD").length());
+
+        // Remove ENDAD
+        s.chop(QString("ENDAD").length());
+
+        s = s.trimmed();   // Final cleaned payload
+    }
+
+    // If this begins with "MSG," it's very likely SBS/BaseStation format.
+    if (s.startsWith("MSG,", Qt::CaseInsensitive)) {
+        QStringList f = s.split(',', Qt::KeepEmptyParts);
+
+        // Defensive indexing:
+        auto safe = [&](int idx)->QString { return (idx < f.size()) ? f.at(idx).trimmed() : QString(); };
+
+        QString icao = safe(4);
+        QString callsign = safe(10);
+        // some feeds put callsign at 5; pick non-empty:
+        if (callsign.isEmpty()) callsign = safe(5);
+
+        double alt_ft = safeToDouble(safe(11), std::numeric_limits<double>::quiet_NaN());
+        double lat = safeToDouble(safe(14), std::numeric_limits<double>::quiet_NaN());
+        double lon = safeToDouble(safe(15), std::numeric_limits<double>::quiet_NaN());
+        double gs = safeToDouble(safe(12), std::numeric_limits<double>::quiet_NaN());
+        double hdg = safeToDouble(safe(13), std::numeric_limits<double>::quiet_NaN());
+        double vr = safeToDouble(safe(16), std::numeric_limits<double>::quiet_NaN());
+        QString mode3aOrSquawk = safe(17);
+
+        // Fill AdsbMessage fields (convert units where appropriate)
+        msg.icao = icao.toUpper();
+        msg.flight = callsign;
+        if (!std::isnan(alt_ft)) msg.alt_m = alt_ft * 0.3048; else msg.alt_m = std::numeric_limits<double>::quiet_NaN();
+        msg.lat = lat;
+        msg.lon = lon;
+        msg.gs_knots = gs;
+        msg.heading = hdg;
+        msg.vr_fpm = vr;
+        // mode3a stored as string; parser earlier used numeric; we store as numeric if possible
+        bool ok = false;
+        quint16 m3 = static_cast<quint16>(mode3aOrSquawk.toUShort(&ok));
+        if (ok) msg.mode3a = m3;
+        // dsid/timestamp not provided in SBS; leave defaults
+
+        // Validity check: latitude/longitude must be finite
+        if (!std::isnan(msg.lat) && !std::isnan(msg.lon)) {
+            msg.valid = true;
+            return msg;
+        } else {
+            qWarning() << "SBS message but missing lat/lon:" << s;
+            return msg;
+        }
+    }
+
+    // Fallback: old simple CSV format (icao,lat,lon,alt,heading,gs,vr,flight,...)
+    {
+        QStringList parts = s.split(',', Qt::KeepEmptyParts);
+        if (parts.size() >= 3) {
+            // allow either: "icao,lat,lon,alt,..."
+            QString maybeIcao = parts.value(0).trimmed();
+            double lat = safeToDouble(parts.value(1));
+            double lon = safeToDouble(parts.value(2));
+
+            if (!std::isnan(lat) && !std::isnan(lon)) {
+                msg.icao = maybeIcao.toUpper();
+                msg.lat = lat;
+                msg.lon = lon;
+                msg.alt_m = safeToDouble(parts.value(3), std::numeric_limits<double>::quiet_NaN());
+                msg.heading = safeToDouble(parts.value(4), std::numeric_limits<double>::quiet_NaN());
+                msg.gs_knots = safeToDouble(parts.value(5), std::numeric_limits<double>::quiet_NaN());
+                msg.vr_fpm = safeToDouble(parts.value(6), std::numeric_limits<double>::quiet_NaN());
+                msg.flight = parts.value(7).trimmed();
+                msg.valid = true;
+                return msg;
+            }
+        }
+    }
+
+    // Nothing matched
+    qWarning() << "Unrecognized ADS-B line format:" << s;
+    return msg;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+//asterixrecord.cpp
+#include "asterixrecord.h"
+#include <QtGlobal>
+#include <QDebug>
+
+AsterixRecord::AsterixRecord(uint8_t category)
+    : m_category(category)
+{
+}
+
+void AsterixRecord::addField(const QByteArray &encodedDi)
+{
+    m_body.append(encodedDi);
+}
+
+void AsterixRecord::clear()
+{
+    m_body.clear();
+    uap = Cat21UAP_Flat();
+}
+
+/* Convert UAP struct to a boolean vector FRN1..FRN49 */
+static QVector<bool> uapToBoolVector(const Cat21UAP_Flat &u)
+{
+    QVector<bool> v;
+    v.reserve(49);
+
+    v.append(u.frn_01_i021_010_DataSourceID);
+    v.append(u.frn_02_i021_040_TargetReportDescriptor);
+    v.append(u.frn_03_i021_161_TrackNumber);
+    v.append(u.frn_04_i021_015_ServiceIdentification);
+    v.append(u.frn_05_i021_071_TimeOfApplicabilityPos);
+    v.append(u.frn_06_i021_130_PositionWGS84);
+    v.append(u.frn_07_i021_131_PositionWGS84_HR);
+
+    v.append(u.frn_08_i021_072_TimeOfApplicabilityVel);
+    v.append(u.frn_09_i021_150_AirSpeed);
+    v.append(u.frn_10_i021_151_TrueAirSpeed);
+    v.append(u.frn_11_i021_080_TargetAddress);
+    v.append(u.frn_12_i021_073_TimeMsgReceptionPos);
+    v.append(u.frn_13_i021_074_TimeMsgReceptionPos_HP);
+    v.append(u.frn_14_i021_075_TimeMsgReceptionVel);
+
+    v.append(u.frn_15_i021_076_TimeMsgReceptionVel_HP);
+    v.append(u.frn_16_i021_140_GeometricHeight);
+    v.append(u.frn_17_i021_090_QualityIndicators);
+    v.append(u.frn_18_i021_210_MOPSVersion);
+    v.append(u.frn_19_i021_070_Mode3A);
+    v.append(u.frn_20_i021_230_RollAngle);
+    v.append(u.frn_21_i021_145_FlightLevel);
+
+    v.append(u.frn_22_i021_152_MagneticHeading);
+    v.append(u.frn_23_i021_200_TargetStatus);
+    v.append(u.frn_24_i021_155_BaroVerticalRate);
+    v.append(u.frn_25_i021_157_GeometricVerticalRate);
+    v.append(u.frn_26_i021_160_AirborneGroundVector);
+    v.append(u.frn_27_i021_165_TrackAngleRate);
+    v.append(u.frn_28_i021_077_TimeOfReportTrans);
+
+    v.append(u.frn_29_i021_170_TargetIdentification);
+    v.append(u.frn_30_i021_020_EmitterCategory);
+    v.append(u.frn_31_i021_220_MetInformation);
+    v.append(u.frn_32_i021_146_SelectedAltitude);
+    v.append(u.frn_33_i021_148_FinalStateSelAlt);
+    v.append(u.frn_34_i021_110_TrajectoryIntent);
+    v.append(u.frn_35_i021_016_ServiceManagement);
+
+    v.append(u.frn_36_i021_008_OperationalStatus);
+    v.append(u.frn_37_i021_271_SurfaceCapabilities);
+    v.append(u.frn_38_i021_132_EmitterCategoryAlt);
+    v.append(u.frn_39_i021_250_ModeSMBData);
+    v.append(u.frn_40_i021_260_ACAS);
+    v.append(u.frn_41_i021_400_ReceiverID);
+    v.append(u.frn_42_i021_295_DataAges);
+
+    v.append(u.frn_43_na);
+    v.append(u.frn_44_na);
+    v.append(u.frn_45_na);
+    v.append(u.frn_46_na);
+    v.append(u.frn_47_na);
+    v.append(u.frn_48_re_reservedExpansion);
+    v.append(u.frn_49_sp_specialPurpose);
+
+    return v;
+}
+
+QByteArray AsterixRecord::encode() const
+{
+    QVector<bool> frns = uapToBoolVector(uap);
+    int idx = 0;
+    int total = frns.size();
+    QByteArray fspecData;
+
+    while (idx < total) {
+        quint8 octet = 0;
+
+        for (int b = 0; b < 7; ++b) {
+            int frnIndex = idx + b;
+            if (frnIndex < total && frns.at(frnIndex)) {
+                octet |= (0x80 >> b);
+            }
+        }
+
+
+        bool more = false;
+        for (int k = idx + 7; k < total; ++k) {
+            if (frns.at(k)) { more = true; break; }
+        }
+        if (more) octet |= 0x01;
+
+        fspecData.append(static_cast<char>(octet));
+        idx += 7;
+    }
+
+    QByteArray out;
+    out.append(static_cast<char>(m_category & 0xFF));
+
+    out.append('\0');
+    out.append('\0');
+
+    out.append(fspecData);
+
+    out.append(m_body);
+    quint32 totalLen = static_cast<quint32>(out.size());
+    if (totalLen > 0xFFFF) {
+        qWarning() << "AsterixRecord::encode: message too long, truncating length to 0xFFFF";
+        totalLen = 0xFFFF;
+    }
+
+    out[1] = static_cast<char>((totalLen >> 8) & 0xFF);
+    out[2] = static_cast<char>(totalLen & 0xFF);
+
+    return out;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//main.cpp
+
+#include <QApplication>
+#include "mainwindow.h"
+
+int main(int argc, char *argv[])
+{
+    QApplication app(argc, argv);
+    MainWindow w;
+    w.show();
+    return app.exec();
+}
+
+
+
+
+
+
+
+
+
+
+//mainwindow.cpp
+
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+#include "receiver.h"
+#include "asterixparser.h"
+
+#include <QMessageBox>
+#include <QTableWidgetItem>
+#include <QGraphicsEllipseItem>
+#include <QPen>
+#include <QBrush>
+#include <QDebug>
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+    , m_receiver(new Receiver(this))
+    , m_scene(new QGraphicsScene(this))
+{
+    ui->setupUi(this);
+
+    ui->mapView->setScene(m_scene);
+    ui->mapView->setBackgroundBrush(Qt::black);
+
+    setupTable();
+
+    connect(ui->pushButton, &QPushButton::clicked,
+            this, &MainWindow::onStartClicked);
+
+    connect(m_receiver, &Receiver::adsbMessageReceived,
+            this, &MainWindow::onAdsbMessageReceived);
+
+    ui->lineEdit_2->setEnabled(false);
+
+    connect(ui->radioButton, &QRadioButton::toggled, this, [=](bool checked){
+        if (checked)
+            ui->lineEdit_2->setEnabled(false);
+    });
+
+    connect(ui->radioButton_2, &QRadioButton::toggled, this, [=](bool checked){
+        if (checked)
+            ui->lineEdit_2->setEnabled(true);
+    });
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+void MainWindow::setupTable()
+{
+    ui->flightTable->setColumnCount(6);
+    ui->flightTable->setHorizontalHeaderLabels(QStringList()
+                                               << "ICAO" << "Callsign" << "Latitude" << "Longitude"
+                                               << "FL" << "Speed");
+}
+
+void MainWindow::onStartClicked()
+{
+    int mode = ui->radioButton->isChecked() ? 1 : 2;
+    QString group = ui->lineEdit_2->text().trimmed();
+    quint16 port = ui->lineEdit->text().toUShort();
+
+    bool ok = m_receiver->start(mode, group, port);
+
+    if (!ok)
+        QMessageBox::warning(this, "Receiver", "Failed to start receiver!");
+}
+
+void MainWindow::onAdsbMessageReceived(const AdsbMessage &msg)
+{
+    addOrUpdateAircraft(msg);
+
+    double x = msg.lon * 100;
+    double y = -msg.lat * 100;
+
+    ui->mapView->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
+
+    // ---------- MOVING DOT LOGIC ----------
+    AnimatedDot *dot;
+
+    if (m_aircraftDots.contains(msg.icao)) {
+        dot = m_aircraftDots[msg.icao];
+        dot->moveTo(x, y);   // <-- smooth animation!
+    }
+    else {
+        dot = new AnimatedDot();
+        dot->setPos(x, y);
+        m_scene->addItem(dot);
+        m_aircraftDots[msg.icao] = dot;
+    }
+
+}
+
+void MainWindow::addOrUpdateAircraft(const AdsbMessage &msg)
+{
+    int row = -1;
+
+    for (int i = 0; i < ui->flightTable->rowCount(); i++) {
+        if (ui->flightTable->item(i, 0) &&
+            ui->flightTable->item(i, 0)->text() == msg.icao) {
+            row = i;
+            break;
+        }
+    }
+
+    if (row == -1) {
+        row = ui->flightTable->rowCount();
+        ui->flightTable->insertRow(row);
+    }
+
+    ui->flightTable->setItem(row, 0, new QTableWidgetItem(msg.icao));
+    ui->flightTable->setItem(row, 1, new QTableWidgetItem(msg.flight));
+    ui->flightTable->setItem(row, 2, new QTableWidgetItem(QString::number(msg.lat)));
+    ui->flightTable->setItem(row, 3, new QTableWidgetItem(QString::number(msg.lon)));
+    ui->flightTable->setItem(row, 4, new QTableWidgetItem(QString::number(msg.alt_m)));
+    ui->flightTable->setItem(row, 5, new QTableWidgetItem(QString::number(msg.gs_knots)));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//radarmap.cpp
+
+#include "radarmap.h"
+#include <QGraphicsEllipseItem>
+
+RadarMap::RadarMap(QWidget *parent)
+    : QGraphicsView(parent)
+{
+    setScene(new QGraphicsScene(this));
+    setRenderHint(QPainter::Antialiasing);
+}
+
+void RadarMap::setMapImage(const QPixmap &pix)
+{
+    scene()->clear();
+    m_mapItem = scene()->addPixmap(pix);
+    mapW = pix.width();
+    mapH = pix.height();
+    scene()->setSceneRect(0, 0, mapW, mapH);
+    m_tracks.clear();
+}
+
+QPointF RadarMap::geoToScene(double lat, double lon)
+{
+    double x = (lon + 180) * (mapW / 360.0);
+    double y = (90 - lat) * (mapH / 180.0);
+    return QPointF(x, y);
+}
+
+void RadarMap::updateTrack(int trackNo, const QString &callsign, double lat, double lon)
+{
+    QPointF pos = geoToScene(lat, lon);
+
+    if (m_tracks.contains(trackNo)) {
+        auto &ti = m_tracks[trackNo];
+        ti.icon->setPos(pos);
+        ti.label->setPos(pos + QPointF(5, -15));
+        return;
+    }
+
+    QGraphicsEllipseItem *icon = scene()->addEllipse(-4, -4, 8, 8,
+                                                     QPen(Qt::yellow), QBrush(Qt::yellow));
+    icon->setPos(pos);
+
+    QGraphicsTextItem *label = scene()->addText(callsign);
+    label->setDefaultTextColor(Qt::white);
+    label->setPos(pos + QPointF(5, -15));
+
+    TrackItem ti;
+    ti.icon = icon;
+    ti.label = label;
+
+    m_tracks.insert(trackNo, ti);
+}
+
+void RadarMap::removeTrack(int trackNo)
+{
+    if (!m_tracks.contains(trackNo)) return;
+
+    auto ti = m_tracks.take(trackNo);
+    scene()->removeItem(ti.icon);
+    scene()->removeItem(ti.label);
+    delete ti.icon;
+    delete ti.label;
+}
+
+void RadarMap::clearAll()
+{
+    for (auto ti : m_tracks.values()) {
+        delete ti.icon;
+        delete ti.label;
+    }
+    m_tracks.clear();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//receiver.cpp
+
+#include "receiver.h"
+#include <QDebug>
+
+Receiver::Receiver(QObject *parent)
+    : QObject(parent)
+{
+}
+
+Receiver::~Receiver()
+{
+    stop();
+}
+
+void Receiver::stop()
+{
+    if (m_listener) {
+        m_listener->deleteLater();
+        m_listener = nullptr;
+    }
+}
+
+bool Receiver::start(int mode, const QString &group, quint16 port)
+{
+    stop();
+
+    m_listener = new UdpListener(port, this);
+
+    bool ok = false;
+
+    if (mode == 1) {
+        ok = m_listener->start();
+    } else {
+        ok = m_listener->startMulticast(group);
+    }
+
+    if (!ok) {
+        qWarning() << "Receiver: failed to start UDP listener!";
+        return false;
+    }
+
+    connect(m_listener, &UdpListener::datagramReceived,
+            this, &Receiver::onDatagramReceived);
+
+    return true;
+}
+
+void Receiver::onDatagramReceived(const QByteArray &data,
+                                  const QHostAddress &sender,
+                                  quint16 port)
+{
+    QList<QByteArray> lines = data.split('\n');
+    for (const QByteArray &line : lines) {
+        if (line.trimmed().isEmpty()) continue;
+
+        AdsbMessage msg = parseAdsbLine(line);
+        if (!msg.valid) {
+            qWarning() << "Invalid ADS-B:" << line;
+            continue;
+        }
+
+        emit adsbMessageReceived(msg);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//udplistener.cpp
+#include "udplistener.h"
+#include <QDebug>
+
+UdpListener::UdpListener(quint16 port, QObject *parent)
+    : QObject(parent), m_socket(new QUdpSocket(this)), m_port(port)
+{
+}
+
+bool UdpListener::start()
+{
+    if (!m_socket->bind(QHostAddress::AnyIPv4, m_port, QUdpSocket::ShareAddress)) {
+        qWarning() << "Failed to bind UDP port" << m_port << ":" << m_socket->errorString();
+        return false;
+    }
+    connect(m_socket, &QUdpSocket::readyRead, this, &UdpListener::readPendingDatagrams);
+    qInfo() << "Listening on UDP port" << m_port;
+    return true;
+}
+
+bool UdpListener::startMulticast(const QString &group)
+{
+    if (!m_socket->bind(QHostAddress::AnyIPv4, m_port, QUdpSocket::ShareAddress)) {
+        qWarning() << "Multicast bind failed:" << m_socket->errorString();
+        return false;
+    }
+
+    if (!m_socket->joinMulticastGroup(QHostAddress(group))) {
+        qWarning() << "Join multicast group failed:" << group;
+        return false;
+    }
+
+    connect(m_socket, &QUdpSocket::readyRead, this, &UdpListener::readPendingDatagrams);
+
+    qInfo() << "Listening multicast on" << group << "port" << m_port;
+    return true;
+}
+
+
+void UdpListener::readPendingDatagrams()
+{
+    while (m_socket->hasPendingDatagrams()) {
+        QByteArray buffer;
+        buffer.resize(static_cast<int>(m_socket->pendingDatagramSize()));
+        QHostAddress sender;
+        quint16 senderPort;
+        m_socket->readDatagram(buffer.data(), buffer.size(), &sender, &senderPort);
+        emit datagramReceived(buffer, sender, senderPort);
+    }
+}
+
+
+
+
+
+
+
+
+//utils.cpp
+#include "utils.h"
+#include <QDebug>
+
+QByteArray Utils::uint8(quint8 v)
+{
+    return QByteArray(1, char(v));
+}
+
+QByteArray Utils::uint16(quint16 v)
+{
+    QByteArray b(2, 0);
+    qToBigEndian(v, b.data());
+    return b;
+}
+
+QByteArray Utils::uint24(quint32 v)
+{
+    QByteArray b(3, 0);
+    b[0] = char((v >> 16) & 0xFF);
+    b[1] = char((v >> 8) & 0xFF);
+    b[2] = char(v & 0xFF);
+    return b;
+}
+
+QByteArray Utils::uint32(quint32 v)
+{
+    QByteArray b(4, 0);
+    qToBigEndian(v, b.data());
+    return b;
+}
+
+QByteArray Utils::int16(qint16 v)
+{
+    QByteArray b(2, 0);
+    qToBigEndian(v, b.data());
+    return b;
+}
+
+QByteArray Utils::int32(qint32 v)
+{
+    QByteArray b(4, 0);
+    qToBigEndian(v, b.data());
+    return b;
+}
+
+QByteArray Utils::icaoToBytes(const QString &hex)
+{
+    bool ok;
+    quint32 val = hex.toUInt(&ok, 16);
+    if (!ok) val = 0;
+
+    QByteArray b(3, 0);
+    b[0] = char((val >> 16) & 0xFF);
+    b[1] = char((val >> 8) & 0xFF);
+    b[2] = char(val & 0xFF);
+    return b;
+}
+
+QString Utils::toHex(const QByteArray &data)
+{
+    QString s;
+    for (auto c : data)
+        s += QString("%1 ").arg((quint8)c, 2, 16, QLatin1Char('0')).toUpper();
+    return s.trimmed();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//mainwindows.ui
+
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1156</width>
+    <height>759</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QGroupBox" name="groupBox">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>130</y>
+      <width>331</width>
+      <height>311</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>Receiver Setting</string>
+    </property>
+    <widget class="QRadioButton" name="radioButton">
+     <property name="geometry">
+      <rect>
+       <x>60</x>
+       <y>70</y>
+       <width>110</width>
+       <height>24</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>BroadCast</string>
+     </property>
+    </widget>
+    <widget class="QRadioButton" name="radioButton_2">
+     <property name="geometry">
+      <rect>
+       <x>180</x>
+       <y>70</y>
+       <width>110</width>
+       <height>24</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>MultiCast</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label">
+     <property name="geometry">
+      <rect>
+       <x>50</x>
+       <y>150</y>
+       <width>63</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Port :</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_2">
+     <property name="geometry">
+      <rect>
+       <x>50</x>
+       <y>180</y>
+       <width>91</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Group :</string>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="lineEdit">
+     <property name="geometry">
+      <rect>
+       <x>140</x>
+       <y>150</y>
+       <width>171</width>
+       <height>26</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="lineEdit_2">
+     <property name="geometry">
+      <rect>
+       <x>140</x>
+       <y>180</y>
+       <width>171</width>
+       <height>26</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="pushButton">
+     <property name="geometry">
+      <rect>
+       <x>130</x>
+       <y>250</y>
+       <width>93</width>
+       <height>29</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>PushButton</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QTableWidget" name="flightTable">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>530</y>
+      <width>771</width>
+      <height>161</height>
+     </rect>
+    </property>
+    <column>
+     <property name="text">
+      <string>New Column</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>New Column</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>New Column</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>New Column</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>New Column</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>New Column</string>
+     </property>
+    </column>
+   </widget>
+   <widget class="QGraphicsView" name="mapView">
+    <property name="geometry">
+     <rect>
+      <x>350</x>
+      <y>0</y>
+      <width>801</width>
+      <height>521</height>
+     </rect>
+    </property>
+   </widget>
+   <zorder>mapView</zorder>
+   <zorder>groupBox</zorder>
+   <zorder>flightTable</zorder>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1156</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menumapView">
+    <property name="title">
+     <string>mapView</string>
+    </property>
+   </widget>
+   <addaction name="menumapView"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+
